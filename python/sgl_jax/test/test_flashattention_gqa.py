@@ -3,6 +3,7 @@ import unittest
 import jax.numpy as jnp
 import numpy as np
 
+from sgl_jax.srt.utils.jax_utils import is_tpu_runtime
 from sgl_jax.test.flashattention_common import AttentionTestBase
 
 
@@ -144,6 +145,10 @@ class TestFlashAttentionGQA(AttentionTestBase):
             xai_temperature_len=512,
         )
 
+    @unittest.skipIf(
+        is_tpu_runtime(),
+        "VMEM OOM on v6e-4 TPU; custom-mask path needs Pallas block-size tuning (#1057).",
+    )
     def test_gqa_prefill_with_custom_mask(self):
         """Test JAX attention accuracy against PyTorch reference"""
         # Parameters

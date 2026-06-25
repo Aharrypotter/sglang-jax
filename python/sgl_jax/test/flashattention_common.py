@@ -415,11 +415,16 @@ class AttentionTestBase(CustomTestCase):
         # write prefix tokens (k, v are unsharded for safe slicing)
         extend_k, extend_v = write_prefix_tokens_for_kv(forward_batch, token_to_kv_pool, lens, k, v)
 
-        # Shard q/extend_k/extend_v with P("data", "tensor") to match production in_specs
-        dp_sharding = NamedSharding(mesh, P("data", "tensor"))
-        q_shard = jax.device_put(q, dp_sharding)
-        extend_k = jax.device_put(extend_k, dp_sharding)
-        extend_v = jax.device_put(extend_v, dp_sharding)
+        # Shard q/extend_k/extend_v to match production in_specs.
+        # q/k/v can only be sharded over heads when the head count is
+        # divisible by the tensor axis size, otherwise they are replicated.
+        q_axis = "tensor" if num_heads >= mesh.shape["tensor"] else None
+        kv_axis = "tensor" if num_kv_heads >= mesh.shape["tensor"] else None
+        q_sharding = NamedSharding(mesh, P("data", q_axis))
+        kv_sharding = NamedSharding(mesh, P("data", kv_axis))
+        q_shard = jax.device_put(q, q_sharding)
+        extend_k = jax.device_put(extend_k, kv_sharding)
+        extend_v = jax.device_put(extend_v, kv_sharding)
 
         # JAX attention
         attn = RadixAttention(
