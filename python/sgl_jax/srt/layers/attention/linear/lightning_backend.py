@@ -25,6 +25,7 @@ from sgl_jax.srt.layers.attention.hybrid_linear_attn_backend import (
     LinearRecurrentAttnBackend,
 )
 from sgl_jax.srt.model_executor.forward_batch_info import ForwardMode
+from sgl_jax.srt.utils.jax_utils import effective_axis
 from sgl_jax.srt.utils.profiling_utils import named_scope
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,19 @@ class LightningAttnBackend(LinearRecurrentAttnBackend):
         if decode_simple_gla_fused is None:
             raise ImportError("simple_gla_fused kernel is required for GLA decode")
 
+        # JAX 0.9.1+ enforces shard_map in_specs match actual input sharding.
+        q_data = effective_axis(q, 0, "data")
+        q_axis = effective_axis(q, 1, "tensor")
+        k_data = effective_axis(k, 0, "data")
+        k_axis = effective_axis(k, 1, "tensor")
+        v_data = effective_axis(v, 0, "data")
+        v_axis = effective_axis(v, 1, "tensor")
+        slope_axis = effective_axis(slope, 0, "tensor")
+        buf_data = effective_axis(recurrent_buffer, 0, "data")
+        buf_axis = effective_axis(recurrent_buffer, 1, "tensor")
+        idx_data = effective_axis(recurrent_indices, 0, "data")
+        has_data = effective_axis(has_initial_state, 0, "data")
+
         def _decode_fn(q_l, k_l, v_l, gamma, buf_l, idx_l, has_l):
             return decode_simple_gla_fused(
                 q_l,
@@ -209,17 +223,17 @@ class LightningAttnBackend(LinearRecurrentAttnBackend):
             _decode_fn,
             mesh=self.mesh,
             in_specs=(
-                P("data", "tensor", None),
-                P("data", "tensor", None),
-                P("data", "tensor", None),
-                P("tensor"),
-                P("data", "tensor", None, None),
-                P("data"),
-                P("data"),
+                P(q_data, q_axis, None),
+                P(k_data, k_axis, None),
+                P(v_data, v_axis, None),
+                P(slope_axis),
+                P(buf_data, buf_axis, None, None),
+                P(idx_data),
+                P(has_data),
             ),
             out_specs=(
-                P("data", "tensor", None),
-                P("data", "tensor", None, None),
+                P(q_data, q_axis, None),
+                P(buf_data, buf_axis, None, None),
             ),
             check_vma=False,
         )(q, k, v, slope, recurrent_buffer, recurrent_indices, has_initial_state)
@@ -240,6 +254,21 @@ class LightningAttnBackend(LinearRecurrentAttnBackend):
             raise ImportError("simple_gla kernel is required for GLA prefill")
 
         cu_seqlens = self.forward_metadata.cu_q_lens
+
+        # JAX 0.9.1+ enforces shard_map in_specs match actual input sharding.
+        q_data = effective_axis(q, 0, "data")
+        q_axis = effective_axis(q, 1, "tensor")
+        k_data = effective_axis(k, 0, "data")
+        k_axis = effective_axis(k, 1, "tensor")
+        v_data = effective_axis(v, 0, "data")
+        v_axis = effective_axis(v, 1, "tensor")
+        slope_axis = effective_axis(slope, 0, "tensor")
+        buf_data = effective_axis(recurrent_buffer, 0, "data")
+        buf_axis = effective_axis(recurrent_buffer, 1, "tensor")
+        idx_data = effective_axis(recurrent_indices, 0, "data")
+        has_data = effective_axis(has_initial_state, 0, "data")
+        cu_data = effective_axis(cu_seqlens, 0, "data")
+
         chunk_size = self.chunk_size
 
         def _prefill_fn(q_l, k_l, v_l, gamma, buf_l, idx_l, has_l, cu_l):
@@ -268,18 +297,18 @@ class LightningAttnBackend(LinearRecurrentAttnBackend):
             _prefill_fn,
             mesh=self.mesh,
             in_specs=(
-                P("data", "tensor", None),
-                P("data", "tensor", None),
-                P("data", "tensor", None),
-                P("tensor"),
-                P("data", "tensor", None, None),
-                P("data"),
-                P("data"),
-                P("data"),
+                P(q_data, q_axis, None),
+                P(k_data, k_axis, None),
+                P(v_data, v_axis, None),
+                P(slope_axis),
+                P(buf_data, buf_axis, None, None),
+                P(idx_data),
+                P(has_data),
+                P(cu_data),
             ),
             out_specs=(
-                P("data", "tensor", None),
-                P("data", "tensor", None, None),
+                P(q_data, q_axis, None),
+                P(buf_data, buf_axis, None, None),
             ),
             check_vma=False,
         )(q, k, v, slope, recurrent_buffer, recurrent_indices, has_initial_state, cu_seqlens)
